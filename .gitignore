@@ -1,0 +1,9 @@
+node_modules
+dist
+dist-ssr
+dist-mobile
+*.local
+
+# Expo 原生壳是独立仓库（已链接 EAS 项目），主仓库只保留脚本引用
+/mobile-shell/
+mobile-shell/.git
