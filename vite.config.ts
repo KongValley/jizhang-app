@@ -2,7 +2,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// GitHub Pages 部署在 /jizhang-app/，本地与根域名部署用 /
+const base = process.env.BASE_PATH ?? '/'
+const withBase = (path: string) => `${base.replace(/\/$/, '')}/${path}`.replace(/\/{2,}/g, '/')
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
@@ -17,18 +22,23 @@ export default defineConfig({
         background_color: '#f2f3f7',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
-        scope: '/',
+        start_url: base,
+        scope: base,
         icons: [
-          { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/icons/maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: withBase('icons/icon-192.png'), sizes: '192x192', type: 'image/png' },
+          { src: withBase('icons/icon-512.png'), sizes: '512x512', type: 'image/png' },
+          {
+            src: withBase('icons/maskable-512.png'),
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
         ],
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
         cleanupOutdatedCaches: true,
-        navigateFallback: '/index.html',
+        navigateFallback: withBase('index.html'),
       },
     }),
   ],
