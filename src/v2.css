@@ -1685,20 +1685,24 @@
   font-weight: 600;
 }
 
+.sheet--recap {
+  position: relative;
+}
+
 .recap-close {
   position: absolute;
-  top: 14px;
-  right: 12px;
+  top: 30px;
+  right: 26px;
   z-index: 3;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--surface-2) 88%, var(--surface));
-  color: var(--text-2);
-  box-shadow: 0 4px 12px -6px rgba(20, 22, 28, 0.35);
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  box-shadow: 0 4px 12px -6px rgba(76, 111, 255, 0.55);
 }
 
 .recap-close:active {
-  background: var(--line);
-  color: var(--text);
+  background: color-mix(in srgb, var(--primary) 22%, var(--surface));
+  color: var(--primary-600);
 }
 
 .recap-scroll {
