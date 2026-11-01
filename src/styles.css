@@ -1974,12 +1974,19 @@ input {
   align-items: center;
   gap: 4px;
   padding: 6px 2px;
-  border: 1px solid transparent;
+  border: 2px solid transparent;
   border-radius: 14px;
+  outline: none;
   background: transparent;
+  -webkit-tap-highlight-color: transparent;
   transition:
     background 0.15s ease,
     border-color 0.15s ease;
+}
+
+.cat-pick:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+  outline-offset: 2px;
 }
 
 .cat-pick__icon {
@@ -2002,8 +2009,13 @@ input {
 }
 
 .cat-pick.is-active {
-  border-color: color-mix(in srgb, var(--primary) 26%, transparent);
-  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  border-color: transparent;
+  background-color: var(--primary-soft);
+  background-image:
+    linear-gradient(var(--primary-soft), var(--primary-soft)),
+    linear-gradient(135deg, #5b7bff 0%, #8f6bff 100%);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
 }
 
 .cat-pick.is-active .cat-pick__icon {

@@ -1687,10 +1687,18 @@
 
 .recap-close {
   position: absolute;
-  top: 16px;
+  top: 14px;
   right: 12px;
   z-index: 3;
-  color: rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface-2) 88%, var(--surface));
+  color: var(--text-2);
+  box-shadow: 0 4px 12px -6px rgba(20, 22, 28, 0.35);
+}
+
+.recap-close:active {
+  background: var(--line);
+  color: var(--text);
 }
 
 .recap-scroll {
