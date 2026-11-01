@@ -812,6 +812,7 @@ input {
   color: var(--text-3);
   font-size: 12.5px;
   font-weight: 600;
+  white-space: nowrap;
   transition:
     background 0.18s ease,
     color 0.18s ease;
@@ -1857,6 +1858,7 @@ input {
 
 .type-toggle {
   display: inline-flex;
+  flex: none;
   gap: 2px;
   padding: 3px;
   border-radius: 999px;
@@ -1871,6 +1873,7 @@ input {
   color: var(--text-3);
   font-size: 13.5px;
   font-weight: 600;
+  white-space: nowrap;
   transition:
     background 0.18s ease,
     color 0.18s ease;
@@ -2506,6 +2509,11 @@ input {
 /* ---------------- 小屏适配 ---------------- */
 
 @media (max-height: 720px) {
+  .type-toggle__btn {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
   .amount-display {
     padding: 8px 20px 2px;
   }

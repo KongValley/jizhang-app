@@ -7,3 +7,6 @@ dist-mobile
 # Expo 鍘熺敓澹虫槸鐙珛浠撳簱锛堝凡閾炬帴 EAS 椤圭洰锛夛紝涓讳粨搴撳彧淇濈暀鑴氭湰寮曠敤
 /mobile-shell/
 mobile-shell/.git
+
+# 发布产物（APK 等，不进版本库）
+release/

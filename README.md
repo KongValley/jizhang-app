@@ -2,6 +2,16 @@
 
 一个跑在手机浏览器里的记账 App（PWA）。**所有数据只保存在你自己的设备上**，不需要注册、没有服务端、没有广告，安装到桌面后可以像原生 App 一样离线使用。
 
+> 在线体验：<https://kongvalley.github.io/jizhang-app/>
+> 安卓安装包：[Releases](https://github.com/KongValley/jizhang-app/releases)
+
+## 在线体验 / 安装
+
+- **直接用**：手机或电脑打开 <https://kongvalley.github.io/jizhang-app/>
+- **装成 App**：手机浏览器菜单 → 添加到主屏幕（iPhone 用 Safari 的分享菜单）
+- **安卓 APK**：到 [Releases](https://github.com/KongValley/jizhang-app/releases) 下载 `jizhang-app-x.y.z.apk` 安装。APK 是内嵌网页的原生壳，完全离线运行，数据同样只存本机。
+- **本地开发**：见下方命令。
+
 ## 功能
 
 - **快速记一笔**：支出 / 收入 / 转账三种模式、自定义金额键盘、分类、账户、日期、备注
@@ -54,7 +64,9 @@ npm run preview  # 本地预览生产版本
 
 把 `dist/` 部署到任意静态托管（Vercel / Netlify / GitHub Pages / Nginx）即可。PWA 的 Service Worker 需要 HTTPS 或 localhost。
 
-> 注意：应用默认部署在域名根目录。如果要部署在子路径（如 `example.com/app/`），需要给 `vite.config.ts` 增加 `base: '/app/'`。
+本仓库已配置 GitHub Pages：推送到 `main` 后由 `.github/workflows/deploy.yml` 自动构建并发布到 <https://kongvalley.github.io/jizhang-app/>。工作流会用 `BASE_PATH=/jizhang-app/` 构建，适配子路径；如果部署到根域名或其它子路径，改这个环境变量即可。
+
+> 注意：应用默认按根目录构建；构建 GitHub Pages 版时必须设置 `BASE_PATH=/jizhang-app/`，否则资源路径会 404。
 
 ### 安装到手机桌面
 
