@@ -69,6 +69,7 @@
 
 html {
   height: 100%;
+  background: var(--bg);
   -webkit-text-size-adjust: 100%;
 }
 
@@ -146,6 +147,10 @@ input {
 }
 
 @media (min-width: 640px) {
+  html {
+    background: var(--bg-outer);
+  }
+
   body {
     background: var(--bg-outer);
   }

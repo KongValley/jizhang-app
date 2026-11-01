@@ -27,6 +27,13 @@ import { todayKey, uid } from './utils'
 export type TxInput = Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>
 export type RecurringInput = Omit<RecurringRule, 'id' | 'createdAt'>
 
+declare global {
+  interface Window {
+    /** react-native-webview 注入的通信桥 */
+    ReactNativeWebView?: { postMessage: (message: string) => void }
+  }
+}
+
 interface StoreValue {
   data: AppData
   addTransaction: (input: TxInput) => void
@@ -71,6 +78,12 @@ function applyTheme(mode: ThemeMode) {
   document.documentElement.dataset.theme = dark ? 'dark' : 'light'
   const meta = document.querySelector('meta[name="theme-color"]')
   if (meta) meta.setAttribute('content', dark ? '#0f1115' : '#f2f3f7')
+  // 通知原生壳（Expo WebView）同步状态栏 / 底部安全区的背景色，避免深色模式露出白边
+  try {
+    window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'theme', dark }))
+  } catch {
+    // 非原生壳环境或通信桥不可用时忽略
+  }
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {

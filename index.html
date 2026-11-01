@@ -16,14 +16,22 @@
     <meta name="apple-mobile-web-app-title" content="记账本" />
     <meta name="mobile-web-app-capable" content="yes" />
     <script>
-      try {
-        var raw = localStorage.getItem('jizhang.data.v1');
-        var mode = raw ? (JSON.parse(raw).settings || {}).theme : 'auto';
-        var dark =
-          mode === 'dark' ||
-          ((!mode || mode === 'auto') && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-      } catch (e) {}
+      ;(function () {
+        try {
+          var raw = localStorage.getItem('jizhang.data.v1')
+          var mode = raw ? (JSON.parse(raw).settings || {}).theme : 'auto'
+          var dark =
+            mode === 'dark' ||
+            ((!mode || mode === 'auto') && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+          var meta = document.querySelector('meta[name="theme-color"]')
+          if (meta) meta.setAttribute('content', dark ? '#0f1115' : '#f2f3f7')
+          // 原生壳（Expo WebView）用这条消息同步状态栏 / 底部安全区背景色
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'theme', dark: dark }))
+          }
+        } catch (e) {}
+      })()
     </script>
   </head>
   <body>
