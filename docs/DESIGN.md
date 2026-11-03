@@ -81,6 +81,8 @@ WebView 壳在 `mobile-shell/`，是独立的 Expo 项目（EAS 项目 `@chara19
 
 OTA 按 `runtimeVersion` 匹配，策略是 `appVersion`：runtime 就等于 `app.json` 的 `version`。因此 **`version` 只在原生构建时递增，网页改动不 bump**——否则已装用户会收不到更新（新 runtime 没有对应的包）。`fingerprint` 策略在这里走不通：EAS 先 prebuild 再算指纹，本地没有 `android/`，两边必然不一致（实测构建失败）。
 
+`app.json` 显式写了 `platforms: ["android", "ios"]`。不写的话 Expo 会把 `web` 也算进去，`eas update` 导出时会去要 `react-native-web` 然后失败。
+
 ### 本地联调
 
 ```bash
