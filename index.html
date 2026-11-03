@@ -4,11 +4,11 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>记账本 · 每天记一笔</title>
     <meta name="description" content="纯本地记账 App：快速记账、分类统计、预算提醒，数据只保存在你自己的设备上。" />
-    <meta name="theme-color" content="#f2f3f7" />
+    <meta name="theme-color" content="#f3f4f8" />
     <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
     <link rel="apple-touch-icon" href="%BASE_URL%icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -25,7 +25,7 @@
             ((!mode || mode === 'auto') && window.matchMedia('(prefers-color-scheme: dark)').matches)
           document.documentElement.dataset.theme = dark ? 'dark' : 'light'
           var meta = document.querySelector('meta[name="theme-color"]')
-          if (meta) meta.setAttribute('content', dark ? '#0f1115' : '#f2f3f7')
+          if (meta) meta.setAttribute('content', dark ? '#0e1015' : '#f3f4f8')
           // 原生壳（Expo WebView）用这条消息同步状态栏 / 底部安全区背景色
           if (window.ReactNativeWebView) {
             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'theme', dark: dark }))

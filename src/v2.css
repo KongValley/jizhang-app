@@ -357,16 +357,6 @@
   font-weight: 500;
 }
 
-.tx__icon--transfer {
-  background: color-mix(in srgb, var(--primary) 12%, transparent) !important;
-  color: var(--primary) !important;
-}
-
-.tx__icon--adjust {
-  background: var(--surface-2) !important;
-  color: var(--text-2) !important;
-}
-
 /* ---------------- 周期账单（预算页） ---------------- */
 
 .due-card {
@@ -558,18 +548,6 @@
   background: var(--surface-2);
 }
 
-.recurring-switch__text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.recurring-switch__text b {
-  font-size: 13.5px;
-  font-weight: 550;
-}
-
 .recurring-interval input {
   max-width: 140px;
 }
@@ -624,7 +602,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.comment-placeholder,
 .legend__row.is-rest {
   opacity: 0.7;
 }
@@ -996,7 +973,8 @@
 
 /* ---------------- 记一笔：紧凑化（保证 844px 高度内账户/日期不折行） ---------------- */
 
-.chip--nowrap {
+/* 类名与 TSX 中的 chips--nowrap 保持一致，否则不换行规则不会生效 */
+.chips--nowrap > .chip {
   flex: none;
   white-space: nowrap;
 }
@@ -1022,6 +1000,21 @@
 
 .quick-body .amount-display__value {
   font-size: 40px;
+}
+
+/* 小屏紧凑布局：选择器特异性必须与上面的 .quick-body 版本对齐，否则不会生效 */
+@media (max-height: 720px) {
+  .quick-body .amount-display {
+    padding: 8px 20px 2px;
+  }
+
+  .quick-body .amount-display__value {
+    font-size: 36px;
+  }
+
+  .amount-note {
+    padding-bottom: 2px;
+  }
 }
 
 .amount-note {

@@ -11,7 +11,7 @@ import {
   Toggle,
   useUi,
 } from '../ui'
-import { budgetStatus, dailyAllowance, findBudget, spentFor, summarize, txInMonth } from '../stats'
+import { budgetStatus, dailyAllowance, findBudget, spentByCategory, spentFor, summarize, txInMonth } from '../stats'
 import { RECURRENCE_OPTIONS } from '../storage'
 import {
   addMonths,
@@ -115,7 +115,9 @@ export function BudgetPage({
   const summary = useMemo(() => summarize(monthTx), [monthTx])
 
   const overall = findBudget(data.budgets, month, 'all')
-  const status = overall ? budgetStatus(data.transactions, month, overall) : null
+  // 一次算出本月各分类支出，供总预算与每个分类预算复用
+  const spends = useMemo(() => spentByCategory(data.transactions, month), [data.transactions, month])
+  const status = overall ? budgetStatus(data.transactions, month, overall, spends) : null
   const allowance = overall ? dailyAllowance(data.transactions, month, overall.amount) : null
 
   const catBudgets = data.budgets.filter((b) => b.month === month && b.categoryId !== 'all')
@@ -274,6 +276,8 @@ export function BudgetPage({
       rule: recurringDraft.rule,
       interval,
       nextDate: recurringDraft.nextDate,
+      // 记下用户选择的“每月几号”，避免 2 月被压到 28 号后永久偏移
+      anchorDay: Number(recurringDraft.nextDate.slice(8, 10)) || undefined,
       endDate: recurringDraft.endDate || undefined,
       auto: recurringDraft.auto,
       enabled: editingRule ? editingRule.enabled : true,
@@ -539,7 +543,7 @@ export function BudgetPage({
         <div className="budget-list">
           {catBudgets.map((b) => {
             const cat = catMap.get(b.categoryId)
-            const st = budgetStatus(data.transactions, month, b)
+            const st = budgetStatus(data.transactions, month, b, spends)
             return (
               <button key={b.id} className="budget-row" onClick={() => openSheet(b.categoryId)}>
                 <span
@@ -717,6 +721,7 @@ export function BudgetPage({
               inputMode="numeric"
               min={1}
               max={99}
+              aria-label="周期账单的间隔周期数"
               value={recurringDraft.interval}
               onChange={(e) => patchDraft({ interval: e.target.value.replace(/[^\d]/g, '') })}
               onBlur={() =>
@@ -729,6 +734,7 @@ export function BudgetPage({
             <span className="field__label">下次日期</span>
             <input
               type="date"
+              aria-label="周期账单的下次日期"
               value={recurringDraft.nextDate}
               onChange={(e) => patchDraft({ nextDate: e.target.value })}
             />
@@ -738,6 +744,7 @@ export function BudgetPage({
             <span className="field__label">结束日期（可选）</span>
             <input
               type="date"
+              aria-label="周期账单的结束日期"
               value={recurringDraft.endDate}
               min={recurringDraft.nextDate || undefined}
               onChange={(e) => patchDraft({ endDate: e.target.value })}

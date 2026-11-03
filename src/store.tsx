@@ -21,6 +21,7 @@ import type {
   Transaction,
 } from './types'
 import { STORAGE_KEY, loadData, saveData, seedData } from './storage'
+import { createDebouncedSaver, SAVE_DEBOUNCE_MS, type DebouncedSaver } from './persistence'
 import { adjustTransaction as adjustRecord, dueInstances } from './stats'
 import { todayKey, uid } from './utils'
 
@@ -36,6 +37,10 @@ declare global {
 
 interface StoreValue {
   data: AppData
+  /** 本地数据损坏，已进入只读保护模式（不会覆盖原始数据） */
+  corrupted: boolean
+  /** 最近一次写入本地存储失败（通常是空间已满） */
+  saveFailed: boolean
   addTransaction: (input: TxInput) => void
   updateTransaction: (id: string, patch: Partial<TxInput>) => void
   deleteTransaction: (id: string) => void
@@ -77,7 +82,8 @@ function applyTheme(mode: ThemeMode) {
     (mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
   document.documentElement.dataset.theme = dark ? 'dark' : 'light'
   const meta = document.querySelector('meta[name="theme-color"]')
-  if (meta) meta.setAttribute('content', dark ? '#0f1115' : '#f2f3f7')
+  // 与 styles.css 中的 --bg 保持一致，否则状态栏和页面背景会有色差
+  if (meta) meta.setAttribute('content', dark ? '#0e1015' : '#f3f4f8')
   // 通知原生壳（Expo WebView）同步状态栏 / 底部安全区的背景色，避免深色模式露出白边
   try {
     window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'theme', dark }))
@@ -87,16 +93,65 @@ function applyTheme(mode: ThemeMode) {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<AppData>(loadData)
+  const initial = useRef<{ data: AppData; corrupted: boolean } | null>(null)
+  if (!initial.current) {
+    try {
+      initial.current = { data: loadData(), corrupted: false }
+    } catch (error) {
+      console.error('本地数据无法读取，进入只读保护模式', error)
+      initial.current = { data: seedData(), corrupted: true }
+    }
+  }
+  const [data, setData] = useState<AppData>(initial.current.data)
+  /** 本地数据损坏时为 true，此时禁止写入，避免覆盖掉可恢复的原始数据 */
+  const [corrupted, setCorrupted] = useState(initial.current.corrupted)
+  const [saveFailed, setSaveFailed] = useState(false)
   const skipNextSave = useRef(false)
 
+  /* ---------------- 持久化（防抖 + 退出前强制落盘） ---------------- */
+
+  /** 防抖写入器：连续改动合并成一次 localStorage 写 */
+  const saver = useRef<DebouncedSaver | null>(null)
+  if (!saver.current) {
+    // 两种落盘路径（定时器 / flush）都通过回调上报结果，界面提示才准确
+    saver.current = createDebouncedSaver(saveData, SAVE_DEBOUNCE_MS, (ok) => setSaveFailed(!ok))
+  }
+
+  const corruptedRef = useRef(initial.current.corrupted)
+  corruptedRef.current = corrupted
+
+  /** 立即把待写入的数据落盘（页面隐藏 / 卸载时调用） */
+  const flushSave = useCallback(() => {
+    if (corruptedRef.current) return
+    saver.current?.flush()
+  }, [])
+
   useEffect(() => {
+    const s = saver.current!
     if (skipNextSave.current) {
       skipNextSave.current = false
+      // 数据来自其它标签页，以它为准：丢弃本页待写入的内容，避免互相覆盖
+      s.cancel()
       return
     }
-    saveData(data)
-  }, [data])
+    // 数据损坏时不要回写，否则会用空账本覆盖用户还没导出的原始数据
+    if (corrupted) return
+    s.schedule(data)
+  }, [data, corrupted])
+
+  // 页面被隐藏或卸载时，把还没落盘的改动立刻写掉
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flushSave()
+    }
+    window.addEventListener('pagehide', flushSave)
+    document.addEventListener('visibilitychange', onHide)
+    return () => {
+      window.removeEventListener('pagehide', flushSave)
+      document.removeEventListener('visibilitychange', onHide)
+      flushSave()
+    }
+  }, [flushSave])
 
   useEffect(() => {
     applyTheme(data.settings.theme)
@@ -105,7 +160,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (data.settings.theme === 'auto') applyTheme('auto')
     }
     mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
+
+    // 原生壳（Android WebView）在系统深浅色切换时不一定会派发 prefers-color-scheme 的
+    // change 事件，导致「跟随系统」要重启才生效。这里在页面重新可见时补一次判定，
+    // 代价极小（仅比较一次媒体查询），可以覆盖切后台改主题再回来的常见路径。
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      if (data.settings.theme !== 'auto') return
+      applyTheme('auto')
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      mq.removeEventListener('change', onChange)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [data.settings.theme])
 
   // 多标签页之间同步（跳过回写，避免两个标签页来回触发 storage 事件）
@@ -137,10 +206,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setData((current) => {
       const today = todayKey()
       const dueKeys = new Set(current.recurringDues.map((d) => `${d.ruleId}|${d.date}`))
+      // 按「规则 id + 日期」判断是否已入账，避免两条参数相同但不同的规则互相吞掉对方
       const postedKeys = new Set(
         current.transactions
-          .filter((t) => t.note)
-          .map((t) => `${t.categoryId}|${t.accountId}|${t.amount}|${t.date}`),
+          .filter((t) => t.sourceRuleId)
+          .map((t) => `${t.sourceRuleId}|${t.date}`),
       )
       const now = Date.now()
       const newTx: Transaction[] = []
@@ -160,9 +230,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         changed = true
         for (const date of fresh) {
-          const signKey = `${rule.categoryId}|${rule.accountId}|${rule.amount}|${date}`
+          const signKey = `${rule.id}|${date}`
           if (rule.auto) {
             if (postedKeys.has(signKey)) continue
+            postedKeys.add(signKey)
             newTx.push({
               id: uid('t-'),
               type: rule.type,
@@ -171,6 +242,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               accountId: rule.accountId,
               note: rule.note || rule.name,
               date,
+              sourceRuleId: rule.id,
               createdAt: now,
               updatedAt: now,
             })
@@ -258,7 +330,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     const deleteAccount = (id: string) => {
-      patchData((d) => ({ ...d, accounts: d.accounts.filter((a) => a.id !== id) }))
+      patchData((d) => ({
+        ...d,
+        accounts: d.accounts.filter((a) => a.id !== id),
+        // 连带清理引用该账户的计划 / 周期规则 / 模板，避免留下指向不存在账户的悬空数据
+        debts: d.debts.filter((p) => p.accountId !== id),
+        recurring: d.recurring.filter((r) => r.accountId !== id),
+        templates: d.templates.filter((t) => t.accountId !== id),
+      }))
     }
 
     const setBudget = (month: string, categoryId: string, amount: number) => {
@@ -323,6 +402,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               accountId: rule.accountId,
               note: rule.note || rule.name,
               date: due.date,
+              sourceRuleId: rule.id,
               createdAt: now,
               updatedAt: now,
             },
@@ -395,6 +475,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const replaceData = (next: AppData) => {
       setData({ ...next, updatedAt: Date.now() })
+      // 用户主动恢复了备份：解除只读保护，恢复正常写入
+      setCorrupted(false)
     }
 
     const clearTransactions = () => {
@@ -403,10 +485,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const resetAll = () => {
       setData(seedData())
+      // 主动清空同样视为用户处置完毕，解除只读保护
+      setCorrupted(false)
     }
 
     return {
       data,
+      corrupted,
+      saveFailed,
       addTransaction,
       updateTransaction,
       deleteTransaction,
@@ -434,7 +520,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       clearTransactions,
       resetAll,
     }
-  }, [data, patchData])
+  }, [data, patchData, corrupted, saveFailed])
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
 }

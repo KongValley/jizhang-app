@@ -6,7 +6,7 @@ import { Dialog, Segmented, Sheet, Toggle, useUi } from '../ui'
 import { Icon, type IconName } from '../icons'
 import { ICON_CHOICES, ICON_LABELS } from '../icon-set'
 import { buildBadges, recordStreak } from '../insights'
-import { accountBalance, accountNature, netWorthAt } from '../stats'
+import { accountNature, balanceMap, netWorthAt } from '../stats'
 import {
   centsToInput,
   cn,
@@ -76,8 +76,19 @@ export function SettingsPage({
   const [categoryEdit, setCategoryEdit] = useState<{ category: Category | null } | null>(null)
 
   const accounts = data.accounts
-  const sizeKB = Math.max(1, Math.round(JSON.stringify(data).length / 1024))
+  // 只为展示存储占用，没必要每次渲染都序列化整个账本
+  const sizeKB = useMemo(() => Math.max(1, Math.round(JSON.stringify(data).length / 1024)), [data])
   const worth = useMemo(() => netWorthAt(data, todayKey()), [data])
+  // 一次遍历同时得到每个账户的余额与账单数，供账户列表复用
+  const accountStats = useMemo(() => {
+    const balances = balanceMap(data.transactions, data.accounts)
+    const counts = new Map<string, number>()
+    for (const t of data.transactions) {
+      counts.set(t.accountId, (counts.get(t.accountId) ?? 0) + 1)
+      if (t.toAccountId) counts.set(t.toAccountId, (counts.get(t.toAccountId) ?? 0) + 1)
+    }
+    return { balances, counts }
+  }, [data.transactions, data.accounts])
 
   const exportCSV = (month?: string) => {
     if (data.transactions.length === 0) {
@@ -158,7 +169,10 @@ export function SettingsPage({
   }
 
   const removeAccount = async (account: Account) => {
-    const used = data.transactions.filter((t) => t.accountId === account.id).length
+    // 转入方（toAccountId）也算使用过，否则删除会留下悬空转账
+    const used = data.transactions.filter(
+      (t) => t.accountId === account.id || t.toAccountId === account.id,
+    ).length
     if (used > 0) {
       toast('该账户已有账单，只能归档')
       return
@@ -260,8 +274,8 @@ export function SettingsPage({
         <div className="section-card">
           {accounts.length === 0 && <p className="muted-line">还没有账户</p>}
           {accounts.map((account) => {
-            const count = data.transactions.filter((t) => t.accountId === account.id).length
-            const balance = accountBalance(data.transactions, account)
+            const count = accountStats.counts.get(account.id) ?? 0
+            const balance = accountStats.balances.get(account.id) ?? account.initialBalance
             return (
               <button
                 key={account.id}
@@ -505,7 +519,7 @@ export function SettingsPage({
             <span className="row__icon" aria-hidden="true"><Icon name="receipt" size={18} /></span>
             <span className="row__body">
               <span className="row__title">记账本</span>
-              <span className="row__sub">版本 1.3.0 · 无需登录，无广告</span>
+              <span className="row__sub">版本 {__APP_VERSION__} · 无需登录，无广告</span>
             </span>
           </div>
           {canInstall ? (
@@ -540,6 +554,7 @@ export function SettingsPage({
       </p>
 
       <AccountEditor
+        key={accountSheet === null ? 'closed' : accountSheet === 'new' ? 'new' : accountSheet.id}
         open={accountSheet !== null}
         account={accountSheet === 'new' ? null : accountSheet}
         onClose={() => setAccountSheet(null)}
@@ -605,6 +620,9 @@ export function SettingsPage({
       </Sheet>
 
       <CategoryEditor
+        key={
+          categoryEdit === null ? 'closed' : (categoryEdit.category?.id ?? `new-${categoryTab}`)
+        }
         open={categoryEdit !== null}
         category={categoryEdit?.category ?? null}
         type={categoryTab}
@@ -658,18 +676,16 @@ function AccountEditor({
 }) {
   const { addAccount, updateAccount } = useStore()
   const { toast } = useUi()
-  const [name, setName] = useState('')
-  const [kind, setKind] = useState<AccountKind>('cash')
-  const [nature, setNature] = useState<AccountNature>('asset')
-  const [initial, setInitial] = useState('')
-
-  useEffect(() => {
-    if (!open) return
-    setName(account?.name ?? '')
-    setKind(account?.kind ?? 'cash')
-    setNature(account ? accountNature(account) : 'asset')
-    setInitial(account ? centsToInput(Math.abs(account.initialBalance)) : '')
-  }, [open, account])
+  // 用惰性初始化代替 effect：调用方通过 key 重挂载本组件，
+  // 这样打字过程中数据变化（多标签同步、归档）不会再清空未保存的输入。
+  const [name, setName] = useState(() => account?.name ?? '')
+  const [kind, setKind] = useState<AccountKind>(() => account?.kind ?? 'cash')
+  const [nature, setNature] = useState<AccountNature>(() =>
+    account ? accountNature(account) : 'asset',
+  )
+  const [initial, setInitial] = useState(() =>
+    account ? centsToInput(Math.abs(account.initialBalance)) : '',
+  )
 
   const kindMeta = ACCOUNT_KINDS.find((k) => k.value === kind) ?? ACCOUNT_KINDS[0]
   const isLiability = nature === 'liability'
@@ -814,14 +830,9 @@ function CategoryEditor({
 }) {
   const { data, addCategory, updateCategory } = useStore()
   const { toast } = useUi()
-  const [name, setName] = useState('')
-  const [icon, setIcon] = useState<IconName>('tag')
-
-  useEffect(() => {
-    if (!open) return
-    setName(category?.name ?? '')
-    setIcon(category?.icon ?? 'tag')
-  }, [open, category])
+  // 同 AccountEditor：靠调用方的 key 重挂载来初始化，不在 effect 里重置
+  const [name, setName] = useState(() => category?.name ?? '')
+  const [icon, setIcon] = useState<IconName>(() => category?.icon ?? 'tag')
 
   const save = () => {
     const trimmed = name.trim()

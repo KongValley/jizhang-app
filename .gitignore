@@ -8,5 +8,5 @@ dist-mobile
 /mobile-shell/
 mobile-shell/.git
 
-# 发布产物（APK 等，不进版本库）
+# 鍙戝竷浜х墿锛圓PK 绛夛紝涓嶈繘鐗堟湰搴擄級
 release/

@@ -72,19 +72,39 @@ export function QuickAdd({
     [data.categories, type, isTransfer],
   )
 
+  /**
+   * 编辑旧账时，这笔账用到的分类/账户可能已经被归档。
+   * 它们必须继续出现在选项里并保持选中，否则只改备注保存就会静默改掉分类和所属账户
+   * （账户一变，两个账户的余额都会跟着错）。
+   */
+  const archivedCategory = useMemo(() => {
+    if (!draft) return null
+    const found = data.categories.find((c) => c.id === draft.categoryId)
+    return found?.archived ? found : null
+  }, [draft, data.categories])
+
+  const accountChoices = useMemo(() => {
+    if (!draft) return accounts
+    const usedIds = [draft.accountId, draft.toAccountId].filter(Boolean)
+    const extra = data.accounts.filter(
+      (a) => a.archived && usedIds.includes(a.id) && !accounts.some((x) => x.id === a.id),
+    )
+    return extra.length ? [...accounts, ...extra] : accounts
+  }, [accounts, data.accounts, draft])
+
   // 打开时初始化（一次算好，避免多个副作用互相覆盖）
   useEffect(() => {
     if (!open) return
     if (draft) {
       const txType: TxType =
         draft.type === 'transfer' || draft.type === 'adjust' ? 'transfer' : draft.type
-      const catOk = data.categories.some(
-        (c) => c.id === draft.categoryId && c.type === txType && !c.archived,
-      )
+      // 允许保留已归档的分类，只要求类型匹配
+      const catOk = data.categories.some((c) => c.id === draft.categoryId && c.type === txType)
       const firstCat = data.categories.find((c) => c.type === txType && !c.archived)
-      const accOk = accounts.some((a) => a.id === draft.accountId)
+      // 账户也允许是已归档的，避免顺带改动历史记录的归属账户
+      const accOk = data.accounts.some((a) => a.id === draft.accountId)
       const from = accOk ? draft.accountId : (accounts[0]?.id ?? '')
-      const toOk = accounts.some((a) => a.id === draft.toAccountId && a.id !== from)
+      const toOk = data.accounts.some((a) => a.id === draft.toAccountId && a.id !== from)
       setType(txType)
       setAmount(centsToInput(draft.amount))
       setCategoryId(catOk ? draft.categoryId : (firstCat?.id ?? ''))
@@ -315,7 +335,7 @@ export function QuickAdd({
   const yesterday = dateShift(1)
   const before = dateShift(2)
 
-  const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? '选择账户'
+  const accountName = (id: string) => accountChoices.find((a) => a.id === id)?.name ?? '选择账户'
 
   const saveLabel = isTransfer
     ? '确认转账'
@@ -326,7 +346,13 @@ export function QuickAdd({
         : '记一笔收入'
 
   return (
-    <Sheet open={open} onClose={onClose} hideClose className="sheet--quick">
+    <Sheet
+      open={open}
+      onClose={onClose}
+      hideClose
+      className="sheet--quick"
+      label={draft ? '编辑记录' : '记一笔'}
+    >
       <div className="quick-head">
         <div className="type-toggle">
           <button
@@ -389,12 +415,12 @@ export function QuickAdd({
               )}
               <div className="transfer-pick__flow">
                 <span className="transfer-pick__acc">
-                  <Icon name={accountIcon(accounts.find((a) => a.id === fromId)?.kind ?? 'other')} size={15} />
+                  <Icon name={accountIcon(accountChoices.find((a) => a.id === fromId)?.kind ?? 'other')} size={15} />
                   {accountName(fromId)}
                 </span>
                 <Icon name="transfer" size={16} />
                 <span className="transfer-pick__acc">
-                  <Icon name={accountIcon(accounts.find((a) => a.id === toId)?.kind ?? 'other')} size={15} />
+                  <Icon name={accountIcon(accountChoices.find((a) => a.id === toId)?.kind ?? 'other')} size={15} />
                   {accountName(toId)}
                 </span>
               </div>
@@ -406,7 +432,7 @@ export function QuickAdd({
                   <div className="quick-row">
                     <span className="quick-label">从</span>
                     <div className="chips chips--nowrap">
-                      {accounts.map((a) => (
+                      {accountChoices.map((a) => (
                         <button
                           key={a.id}
                           className={cn(
@@ -421,6 +447,7 @@ export function QuickAdd({
                         >
                           <Icon name={accountIcon(a.kind)} size={15} />
                           {a.name}
+                          {a.archived && '（已归档）'}
                         </button>
                       ))}
                     </div>
@@ -428,7 +455,7 @@ export function QuickAdd({
                   <div className="quick-row">
                     <span className="quick-label">到</span>
                     <div className="chips chips--nowrap">
-                      {accounts.map((a) => (
+                      {accountChoices.map((a) => (
                         <button
                           key={a.id}
                           className={cn(
@@ -443,6 +470,7 @@ export function QuickAdd({
                         >
                           <Icon name={accountIcon(a.kind)} size={15} />
                           {a.name}
+                          {a.archived && '（已归档）'}
                         </button>
                       ))}
                     </div>
@@ -457,7 +485,7 @@ export function QuickAdd({
                   {templates.map((t) => (
                     <div key={t.id} className="quick-templates__item">
                       <button
-                        className={cn('chip', 'chip--sm', 'quick-templates__chip', accountId === t.accountId && 'is-active')}
+                        className={cn('chip', 'chip--sm', 'quick-templates__chip')}
                         onClick={() => applyTemplate(t)}
                       >
                         {isSuggest(t) && <Icon name="zap" size={13} />}
@@ -479,10 +507,25 @@ export function QuickAdd({
                 </div>
               )}
 
-              {categories.length === 0 ? (
+              {categories.length === 0 && !archivedCategory ? (
                 <p className="quick-hint">还没有可用的分类，请到「我的 → 分类管理」中添加。</p>
               ) : (
                 <div className="cat-grid">
+                  {archivedCategory && (
+                    <button
+                      className={cn('cat-pick', categoryId === archivedCategory.id && 'is-active')}
+                      onClick={() => setCategoryId(archivedCategory.id)}
+                      title="该分类已归档，仅这笔历史记录仍在使用"
+                    >
+                      <span
+                        className="cat-pick__icon"
+                        style={{ background: `${archivedCategory.color}1a`, color: archivedCategory.color }}
+                      >
+                        <Icon name={archivedCategory.icon} size={20} />
+                      </span>
+                      <span className="cat-pick__name">{archivedCategory.name}（已归档）</span>
+                    </button>
+                  )}
                   {categories.map((c) => (
                     <button
                       key={c.id}
@@ -508,7 +551,7 @@ export function QuickAdd({
               <div className="quick-row">
                 <span className="quick-label">账户</span>
                 <div className="chips chips--nowrap">
-                  {accounts.map((a) => (
+                  {accountChoices.map((a) => (
                     <button
                       key={a.id}
                       className={cn('chip', accountId === a.id && 'is-active')}
@@ -516,6 +559,7 @@ export function QuickAdd({
                     >
                       <Icon name={accountIcon(a.kind)} size={15} />
                       {a.name}
+                      {a.archived && '（已归档）'}
                     </button>
                   ))}
                   {accounts.length === 0 && (

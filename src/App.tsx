@@ -26,7 +26,7 @@ export function useDueCount(): number {
 }
 
 export default function App() {
-  const { data, addTransaction, markBadgesSeen } = useStore()
+  const { data, corrupted, saveFailed, addTransaction, markBadgesSeen } = useStore()
   const { toast } = useUi()
   const [tab, setTab] = useState<TabKey>('home')
   const [month, setMonth] = useState(currentMonth())
@@ -98,6 +98,17 @@ export default function App() {
 
   return (
     <div className="app">
+      {corrupted && (
+        <div className="data-alert data-alert--danger" role="alert">
+          本地数据无法读取，已进入只读保护（不会覆盖原始数据）。原始内容已备份到
+          <code>jizhang.data.v1.corrupt</code>，请从「我的 → 恢复备份」导入最近的 JSON 备份。
+        </div>
+      )}
+      {!corrupted && saveFailed && (
+        <div className="data-alert" role="alert">
+          本地存储写入失败（可能空间已满），新的改动可能不会被保存。请先到「我的 → 备份为 JSON」导出备份。
+        </div>
+      )}
       <main className="app__main" key={tab}>
         {tab === 'home' && (
           <HomePage

@@ -22,6 +22,8 @@ export interface Transaction {
   note: string
   /** YYYY-MM-DD */
   date: string
+  /** 由周期账单自动生成时，记录来源规则 id，用于幂等去重 */
+  sourceRuleId?: string
   createdAt: number
   updatedAt: number
 }
@@ -78,6 +80,11 @@ export interface RecurringRule {
   interval: number
   /** 当前周期的记账日期 YYYY-MM-DD，生成后会推进到下一周期 */
   nextDate: string
+  /**
+   * 每月固定记账的“锚定日”（1-31）。
+   * 用于避免 1 月 31 日 → 2 月 28 日之后，后续月份被永久改成 28 日。
+   */
+  anchorDay?: number
   /** YYYY-MM-DD，到这天之后不再生成 */
   endDate?: string
   /** 到期时是否自动记账；否则提示用户确认 */

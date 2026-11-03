@@ -18,7 +18,13 @@ export function RecapSheet({
   const recap = useMemo(() => buildRecap(data, month), [data, month])
 
   return (
-    <Sheet open={open && recap !== null} onClose={onClose} hideClose className="sheet--recap">
+    <Sheet
+      open={open && recap !== null}
+      onClose={onClose}
+      hideClose
+      className="sheet--recap"
+      label={`${monthLabel(month)} 月度小结`}
+    >
       {recap && (
         <>
           <button className="icon-btn recap-close" onClick={onClose} aria-label="关闭">

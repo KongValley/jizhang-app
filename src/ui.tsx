@@ -3,9 +3,11 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { addMonths, clamp, cn, currentMonth, monthLabel } from './utils'
@@ -138,6 +140,66 @@ function useScrollLock(active: boolean) {
   }, [active])
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * 弹层的焦点管理：
+ * - 打开时把焦点移进面板（优先 autoFocus 目标，其次第一个可聚焦元素）
+ * - Tab / Shift+Tab 在面板内循环，不会跑到遮罩背后的页面上
+ * - 关闭时把焦点还给打开它的那个元素
+ */
+function useFocusTrap(open: boolean, panelRef: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    if (!open) return
+    const panel = panelRef.current
+    if (!panel) return
+    const restoreTo = document.activeElement as HTMLElement | null
+
+    const focusables = () => Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE))
+    // 如果 React 的 autoFocus 已经把焦点放进了面板内，就不要再抢过来
+    if (!panel.contains(document.activeElement)) {
+      const initial =
+        panel.querySelector<HTMLElement>('[autofocus], [data-autofocus]') ?? focusables()[0]
+      ;(initial ?? panel).focus({ preventScroll: true })
+    }
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return
+      const items = focusables()
+      if (items.length === 0) {
+        e.preventDefault()
+        panel.focus({ preventScroll: true })
+        return
+      }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      // 焦点在面板本身或已跑出面板时，把 Tab 拉回循环内
+      if (!panel.contains(active) || active === panel) {
+        e.preventDefault()
+        ;(e.shiftKey ? last : first).focus()
+        return
+      }
+      if (e.shiftKey && active === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      if (restoreTo && document.contains(restoreTo)) {
+        restoreTo.focus({ preventScroll: true })
+      }
+    }
+  }, [open, panelRef])
+}
+
 interface SheetProps {
   open: boolean
   onClose: () => void
@@ -147,10 +209,25 @@ interface SheetProps {
   className?: string
   top?: boolean
   hideClose?: boolean
+  /** 无可见标题时提供给读屏的可访问名称 */
+  label?: string
 }
 
-export function Sheet({ open, onClose, title, subtitle, children, className, top, hideClose }: SheetProps) {
+export function Sheet({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+  className,
+  top,
+  hideClose,
+  label,
+}: SheetProps) {
   useScrollLock(open)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+  useFocusTrap(open, panelRef)
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -164,16 +241,24 @@ export function Sheet({ open, onClose, title, subtitle, children, className, top
   return createPortal(
     <div className={cn('overlay', top && 'overlay--top')} onClick={onClose}>
       <div
+        ref={panelRef}
         className={cn('sheet', className)}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-label={title ? undefined : (label ?? '弹层')}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sheet__grabber" />
         {(title || !hideClose) && (
           <div className="sheet__head">
             <div>
-              {title && <h2 className="sheet__title">{title}</h2>}
+              {title && (
+                <h2 className="sheet__title" id={titleId}>
+                  {title}
+                </h2>
+              )}
               {subtitle && <p className="sheet__subtitle">{subtitle}</p>}
             </div>
             {!hideClose && (
@@ -201,6 +286,9 @@ interface DialogProps {
 
 export function Dialog({ open, onClose, title, children, footer, top }: DialogProps) {
   useScrollLock(open)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+  useFocusTrap(open, panelRef)
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -213,9 +301,19 @@ export function Dialog({ open, onClose, title, children, footer, top }: DialogPr
   if (!open) return null
   return createPortal(
     <div className={cn('overlay', 'overlay--center', top && 'overlay--top')} onClick={onClose}>
-      <div className="dialog dialog--form" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={panelRef}
+        className="dialog dialog--form"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="dialog__head">
-          <h3 className="dialog__title">{title}</h3>
+          <h3 className="dialog__title" id={titleId}>
+            {title}
+          </h3>
           <button className="icon-btn" onClick={onClose} aria-label="关闭">
             <Icon name="close" size={18} />
           </button>

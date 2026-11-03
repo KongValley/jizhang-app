@@ -139,18 +139,19 @@ export function trend(txs: Transaction[], endMonth: string, count: number): Tren
   })
 }
 
-/** 单个分类近 N 个月的支出（供分类趋势使用） */
+/** 单个分类近 N 个月的金额（供分类趋势使用）；type 决定统计支出还是收入 */
 export function categoryTrend(
   txs: Transaction[],
   categoryId: string,
   endMonth: string,
   count: number,
+  type: MoneyType = 'expense',
 ): { month: string; amount: number }[] {
   return Array.from({ length: count }, (_, i) => {
     const month = addMonths(endMonth, i - count + 1)
     let amount = 0
     for (const t of txs) {
-      if (t.type === 'expense' && t.categoryId === categoryId && t.date.startsWith(month)) {
+      if (t.type === type && t.categoryId === categoryId && t.date.startsWith(month)) {
         amount += t.amount
       }
     }
@@ -183,6 +184,51 @@ export function accountBalance(txs: Transaction[], account: Account): number {
     balance = applyTx(balance, t, account.id)
   }
   return balance
+}
+
+/**
+ * 一次遍历算出所有账户的余额变动（不含期初余额）。
+ * 避免「每个账户各扫一遍全表」的 O(账户数 × 账单数) 开销。
+ */
+export function balanceDeltas(txs: Transaction[], cutoff = '9999-12-31'): Map<string, number> {
+  const deltas = new Map<string, number>()
+  const add = (id: string | undefined, amount: number) => {
+    if (!id) return
+    deltas.set(id, (deltas.get(id) ?? 0) + amount)
+  }
+  for (const t of txs) {
+    if (t.date > cutoff) continue
+    switch (t.type) {
+      case 'income':
+        add(t.accountId, t.amount)
+        break
+      case 'expense':
+        add(t.accountId, -t.amount)
+        break
+      case 'adjust':
+        add(t.accountId, t.amount)
+        break
+      case 'transfer':
+        add(t.accountId, -t.amount)
+        add(t.toAccountId, t.amount)
+        break
+    }
+  }
+  return deltas
+}
+
+/** 基于 balanceDeltas 的账户余额查询表 */
+export function balanceMap(
+  txs: Transaction[],
+  accounts: Account[],
+  cutoff = '9999-12-31',
+): Map<string, number> {
+  const deltas = balanceDeltas(txs, cutoff)
+  const map = new Map<string, number>()
+  for (const a of accounts) {
+    map.set(a.id, a.initialBalance + (deltas.get(a.id) ?? 0))
+  }
+  return map
 }
 
 export function accountNature(account: Account): 'asset' | 'liability' {
@@ -243,9 +289,11 @@ export function netWorthAt(data: AppData, cutoff: string): NetWorthSnapshot {
   const liabilityItems: WorthItem[] = []
   let assets = 0
   let liabilities = 0
+  // 一次遍历算出全部账户余额，避免逐账户重扫全表
+  const balances = balanceMap(data.transactions, data.accounts, cutoff)
 
   for (const account of data.accounts) {
-    const balance = accountBalanceAt(data.transactions, account, cutoff)
+    const balance = balances.get(account.id) ?? account.initialBalance
     if (accountNature(account) === 'liability') {
       if (balance < 0) {
         const owed = -balance
@@ -298,7 +346,12 @@ export function balanceTrend(data: AppData, endMonth: string, count: number): Wo
 }
 
 export function totalBalance(data: AppData): number {
-  return data.accounts.reduce((s, a) => s + accountBalance(data.transactions, a), 0)
+  // 单次遍历：账户余额之和 = 期初余额之和 + 所有账户净变动
+  const deltas = balanceDeltas(data.transactions)
+  let sum = 0
+  for (const a of data.accounts) sum += a.initialBalance
+  for (const v of deltas.values()) sum += v
+  return sum
 }
 
 /* ---------------- 预算 ---------------- */
@@ -317,6 +370,24 @@ export function spentFor(txs: Transaction[], month: string, categoryId: string):
   return total
 }
 
+/** 一次遍历统计本月各分类支出，供预算列表复用，避免每个预算各扫一遍 */
+export function spentByCategory(txs: Transaction[], month: string): Map<string, number> {
+  const map = new Map<string, number>()
+  for (const t of txs) {
+    if (t.type !== 'expense' || !t.date.startsWith(month)) continue
+    map.set(t.categoryId, (map.get(t.categoryId) ?? 0) + t.amount)
+  }
+  return map
+}
+
+/** 从 spentByCategory 的结果里取某个分类（或全部）的支出 */
+export function spentFromMap(map: Map<string, number>, categoryId: string): number {
+  if (categoryId !== 'all') return map.get(categoryId) ?? 0
+  let total = 0
+  for (const v of map.values()) total += v
+  return total
+}
+
 export interface BudgetStatus {
   budget: number
   spent: number
@@ -327,8 +398,14 @@ export interface BudgetStatus {
   dailyLeft: number
 }
 
-export function budgetStatus(txs: Transaction[], month: string, budget: Budget): BudgetStatus {
-  const spent = spentFor(txs, month, budget.categoryId)
+export function budgetStatus(
+  txs: Transaction[],
+  month: string,
+  budget: Budget,
+  /** 可选：复用已算好的本月分类支出，避免重复全表扫描 */
+  spends?: Map<string, number>,
+): BudgetStatus {
+  const spent = spends ? spentFromMap(spends, budget.categoryId) : spentFor(txs, month, budget.categoryId)
   const remaining = budget.amount - spent
   const { left } = monthProgress(month)
   const daysLeft = month === currentMonth() ? left + 1 : left > 0 ? left : 0
@@ -384,7 +461,9 @@ export function dailyAllowance(
   if (budget <= 0) return null
   const spent = spentFor(txs, month, 'all')
   const { elapsed, total, left } = monthProgress(month)
-  const daysLeft = Math.max(1, left + (month === currentMonth() ? 1 : 0))
+  // 当前月要把今天算进剩余天数，返回值与实际除数保持一致，
+  // 避免调用方用 remaining / daysLeft 得到与 todayAllow 不同的结果
+  const daysLeft = month === currentMonth() ? left + 1 : Math.max(1, left)
   const remaining = budget - spent
   const todaySpent = txs
     .filter((t) => t.type === 'expense' && t.date === today)
@@ -394,7 +473,7 @@ export function dailyAllowance(
     budget,
     spent,
     remaining,
-    daysLeft: month === currentMonth() ? left : 0,
+    daysLeft,
     todayAllow,
     todaySpent,
     overToday: todaySpent > todayAllow,
@@ -422,6 +501,78 @@ export interface HeatmapData {
   total: number
   worst: HeatDay | null
   activeDays: number
+}
+
+/* ---------------- 年度总结 ---------------- */
+
+export interface AnnualSummary {
+  year: string
+  expense: number
+  income: number
+  net: number
+  count: number
+  monthsRecorded: number
+  monthlyAvg: number
+  topMonth: { month: string; amount: number } | null
+  topCategory: { name: string; icon: IconName; color: string; count: number } | null
+}
+
+/** 某一年的收支总结：全年合计、最高支出月份、最常出现的分类 */
+export function annualSummary(
+  txs: Transaction[],
+  categories: { id: string; name: string; icon: IconName; color: string }[],
+  month: string,
+): AnnualSummary {
+  const year = month.slice(0, 4)
+  const catMap = new Map(categories.map((c) => [c.id, c]))
+  const byMonth = new Map<string, number>()
+  const byCat = new Map<string, number>()
+  let expense = 0
+  let income = 0
+  let count = 0
+
+  for (const t of txs) {
+    if (t.type !== 'expense' && t.type !== 'income') continue
+    if (!t.date.startsWith(year)) continue
+    const m = t.date.slice(0, 7)
+    count += 1
+    if (t.type === 'expense') {
+      expense += t.amount
+      byMonth.set(m, (byMonth.get(m) ?? 0) + t.amount)
+      byCat.set(t.categoryId, (byCat.get(t.categoryId) ?? 0) + 1)
+    } else {
+      income += t.amount
+    }
+  }
+
+  let topMonth: AnnualSummary['topMonth'] = null
+  for (const [m, amount] of byMonth) {
+    if (!topMonth || amount > topMonth.amount) topMonth = { month: m, amount }
+  }
+
+  let topCatId: string | null = null
+  let topCatCount = 0
+  for (const [id, c] of byCat) {
+    if (c > topCatCount) {
+      topCatId = id
+      topCatCount = c
+    }
+  }
+  const topCat = topCatId ? catMap.get(topCatId) : undefined
+
+  return {
+    year,
+    expense,
+    income,
+    net: income - expense,
+    count,
+    monthsRecorded: byMonth.size,
+    monthlyAvg: byMonth.size > 0 ? expense / byMonth.size : 0,
+    topMonth,
+    topCategory: topCat
+      ? { name: topCat.name, icon: topCat.icon, color: topCat.color, count: topCatCount }
+      : null,
+  }
 }
 
 export function expenseHeatmap(txs: Transaction[], month: string): HeatmapData {
@@ -694,11 +845,13 @@ export function forecastPayoff(
   if (!Number.isFinite(months) || months <= 0 || months > 1200) {
     return { months: null, date: null, monthlyInterest, totalInterest: 0, feasible: false }
   }
+  // 无息贷款没有利息；有息时总利息 = 总还款额 - 本金
+  const totalInterest = rate === 0 ? 0 : Math.max(0, Math.round(months * monthlyPayment - owed))
   return {
     months,
     date: addMonths(fromMonth, months),
     monthlyInterest,
-    totalInterest: Math.max(0, months * monthlyPayment - owed),
+    totalInterest,
     feasible: true,
   }
 }
@@ -743,17 +896,12 @@ export interface DebtSummary {
   stalled: boolean
 }
 
-/** 近 6 个月平均每月减少的欠款 */
-function averageReduction(data: AppData, account: Account, today: string): number {
-  const startMonth = addMonths(today.slice(0, 7), -6)
-  const startDebt = Math.max(0, -accountBalanceAt(data.transactions, account, monthEndKey(startMonth)))
-  const current = Math.max(0, -accountBalance(data.transactions, account))
+/** 近 6 个月平均每月减少的欠款（基于已算好的余额表，避免重复扫全表） */
+function averageReduction(startBalance: number, currentBalance: number): number {
+  const startDebt = Math.max(0, -startBalance)
+  const current = Math.max(0, -currentBalance)
   const reduction = (startDebt - current) / 6
   return reduction > 0 ? Math.round(reduction) : 0
-}
-
-function debtOf(data: AppData, account: Account): number {
-  return Math.max(0, -accountBalance(data.transactions, account))
 }
 
 export function debtSummary(data: AppData, today = todayKey()): DebtSummary {
@@ -761,27 +909,35 @@ export function debtSummary(data: AppData, today = todayKey()): DebtSummary {
   const plans = new Map(data.debts.map((d) => [d.accountId, d]))
   const thisMonth = today.slice(0, 7)
   const prevMonthEnd = monthEndKey(addMonths(thisMonth, -1))
+  const startMonthEnd = monthEndKey(addMonths(thisMonth, -6))
+
+  // 三张余额表各只需一次全表遍历，替代原来每个负债账户各扫 3 遍
+  const nowBalances = balanceMap(data.transactions, data.accounts)
+  const prevBalances = balanceMap(data.transactions, data.accounts, prevMonthEnd)
+  const startBalances = balanceMap(data.transactions, data.accounts, startMonthEnd)
 
   for (const account of data.accounts) {
     if (accountNature(account) !== 'liability') continue
     const plan = plans.get(account.id)
-    const owed = debtOf(data, account)
+    const balance = nowBalances.get(account.id) ?? account.initialBalance
+    const owed = Math.max(0, -balance)
     const isTracked = plan !== undefined || account.initialBalance < 0 || owed > 0
     if (!isTracked) continue
-    const principal = Math.max(
-      plan?.principal ?? 0,
-      owed,
-      Math.abs(account.initialBalance),
-    )
+    // 有还款计划时以计划本金为准；否则用「当前欠款 / 期初欠款」中较大者，
+    // 这样新增借款会让 repaid 变负、overPrincipal 真正生效
+    const principal = plan?.principal ?? Math.max(owed, Math.abs(account.initialBalance))
     const repaid = principal - owed
     const progress = principal > 0 ? clamp(repaid / principal, 0, 1) : 0
-    const avgReduction = averageReduction(data, account, today)
+    const avgReduction = averageReduction(
+      startBalances.get(account.id) ?? account.initialBalance,
+      balance,
+    )
     const monthlyPayment =
       plan && plan.monthlyPayment > 0 ? plan.monthlyPayment : avgReduction
     const paymentSource: DebtItem['paymentSource'] =
       plan && plan.monthlyPayment > 0 ? 'plan' : avgReduction > 0 ? 'history' : 'none'
     const forecast = forecastPayoff(owed, monthlyPayment, plan?.apr ?? 0, thisMonth)
-    const debtPrev = Math.max(0, -accountBalanceAt(data.transactions, account, prevMonthEnd))
+    const prevOwed = Math.max(0, -(prevBalances.get(account.id) ?? account.initialBalance))
 
     items.push({
       account,
@@ -794,7 +950,7 @@ export function debtSummary(data: AppData, today = todayKey()): DebtSummary {
       paymentSource,
       avgReduction,
       forecast,
-      repaidThisMonth: Math.max(0, debtPrev - owed),
+      repaidThisMonth: Math.max(0, prevOwed - owed),
       settled: owed <= 0,
       overPrincipal: owed > principal,
     })
@@ -976,8 +1132,17 @@ export function suggestTemplates(txs: Transaction[], limit = 4): QuickTemplate[]
 
 /* ---------------- 周期账单 ---------------- */
 
-/** 在给定日期上加周期 */
-export function nextRecurringDate(date: string, rule: RecurrenceRule, interval: number): string {
+/**
+ * 在给定日期上加周期。
+ * anchorDay 用于「每月固定某天」的场景：从 1 月 31 日推进到 2 月会得到 2 月 28 日，
+ * 但下个月应当回到 31 日，而不是永久停在 28 日。
+ */
+export function nextRecurringDate(
+  date: string,
+  rule: RecurrenceRule,
+  interval: number,
+  anchorDay?: number,
+): string {
   const [y, m, d] = date.split('-').map(Number)
   const step = Math.max(1, interval)
   if (rule === 'daily') {
@@ -999,7 +1164,9 @@ export function nextRecurringDate(date: string, rule: RecurrenceRule, interval: 
   const ty = Math.floor(monthIndex / 12)
   const tm = (monthIndex % 12) + 1
   const maxDay = daysInMonth(`${ty}-${String(tm).padStart(2, '0')}`)
-  return `${ty}-${String(tm).padStart(2, '0')}-${String(Math.min(d, maxDay)).padStart(2, '0')}`
+  // 优先用锚定日，保证「每月最后一天」这类规则不会因为 2 月而永久偏移
+  const day = Math.min(Math.max(1, anchorDay ?? d), maxDay)
+  return `${ty}-${String(tm).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
 /**
@@ -1011,11 +1178,13 @@ export function dueInstances(
   today = todayKey(),
 ): { dates: string[]; nextDate: string } {
   const dates: string[] = []
+  // 锚定日取规则里显式记录的值，缺失时用首次的 nextDate 兜底
+  const anchor = rule.anchorDay ?? Number(rule.nextDate.slice(8, 10))
   let cursor = rule.nextDate
   let guard = 0
   while (cursor <= today && (!rule.endDate || cursor <= rule.endDate) && guard < 500) {
     dates.push(cursor)
-    cursor = nextRecurringDate(cursor, rule.rule, rule.interval)
+    cursor = nextRecurringDate(cursor, rule.rule, rule.interval, anchor)
     guard += 1
   }
   return { dates, nextDate: cursor }

@@ -7,7 +7,7 @@ import { BrandMark } from './BrandMark'
 import { greetingFor, recordStreak } from '../insights'
 import { accountIcon } from '../storage'
 import {
-  accountBalance,
+  balanceMap as balanceMapOf,
   dailyAllowance,
   findBudget,
   overspendStreak,
@@ -70,6 +70,11 @@ export function HomePage({
   const activeAccounts = useMemo(() => data.accounts.filter((a) => !a.archived), [data.accounts])
   const catMap = useMemo(() => new Map(data.categories.map((c) => [c.id, c])), [data.categories])
   const accMap = useMemo(() => new Map(data.accounts.map((a) => [a.id, a])), [data.accounts])
+  // 一次遍历算出全部账户余额，避免每个账户 chip 各扫一遍全表
+  const balanceMap = useMemo(
+    () => balanceMapOf(data.transactions, data.accounts),
+    [data.transactions, data.accounts],
+  )
 
   const monthTx = useMemo(() => txInMonth(data.transactions, month), [data.transactions, month])
   const summary = useMemo(() => summarize(monthTx), [monthTx])
@@ -115,12 +120,13 @@ export function HomePage({
   }, [data.templates, data.transactions])
 
   const handleQuickAdd = (tpl: QuickTemplate & { suggest?: boolean }) => {
+    // 兜底分类不能选已归档的，否则新账单会记进一个被隐藏的分类
     const categoryId =
-      tpl.categoryId && catMap.has(tpl.categoryId) ? tpl.categoryId : (data.categories.find((c) => c.type === tpl.type)?.id ?? '')
-    const accountId =
-      tpl.accountId && activeAccounts.some((a) => a.id === tpl.accountId)
-        ? tpl.accountId
-        : (activeAccounts[0]?.id ?? '')
+      tpl.categoryId && catMap.has(tpl.categoryId)
+        ? tpl.categoryId
+        : (data.categories.find((c) => c.type === tpl.type && !c.archived)?.id ?? '')
+    const tplAccountOk = tpl.accountId && activeAccounts.some((a) => a.id === tpl.accountId)
+    const accountId = tplAccountOk ? tpl.accountId : (activeAccounts[0]?.id ?? '')
     if (!accountId) {
       toast('请先添加一个账户', 'warn')
       return
@@ -147,7 +153,13 @@ export function HomePage({
         })
       }
     }
-    toast(`已记录 ${tpl.label}`)
+    if (tpl.accountId && !tplAccountOk) {
+      // 模板原本的账户已归档：明确告知改用了哪个账户，而不是静默替换
+      const fallbackName = activeAccounts[0]?.name ?? '默认账户'
+      toast(`已记入「${fallbackName}」（模板原账户已归档）`, 'warn')
+    } else {
+      toast(`已记录 ${tpl.label}`)
+    }
   }
 
   /* ---------------- 今日概览 ---------------- */
@@ -349,7 +361,7 @@ export function HomePage({
             >
               <Icon name={accountIcon(a.kind)} size={15} />
               {a.name}
-              <em className="chip__value">{formatMoney(accountBalance(data.transactions, a), 0)}</em>
+              <em className="chip__value">{formatMoney(balanceMap.get(a.id) ?? 0, 0)}</em>
             </button>
           ))}
         </div>

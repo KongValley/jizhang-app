@@ -138,6 +138,7 @@ function normalizeTx(input: any): Transaction | null {
     toAccountId: isTransfer ? input.toAccountId : undefined,
     note: typeof input.note === 'string' ? input.note : '',
     date: input.date,
+    sourceRuleId: typeof input.sourceRuleId === 'string' ? input.sourceRuleId : undefined,
     createdAt: Number(input.createdAt) || Date.now(),
     updatedAt: Number(input.updatedAt) || Date.now(),
   }
@@ -210,6 +211,7 @@ function normalizeRecurring(input: any): RecurringRule | null {
     rule,
     interval: Math.min(60, Math.max(1, Math.round(Number(input.interval)) || 1)),
     nextDate: input.nextDate,
+    anchorDay: Math.min(31, Math.max(1, Math.round(Number(input.anchorDay)) || Number(input.nextDate.slice(8, 10)))),
     endDate: isDate(input.endDate) ? input.endDate : undefined,
     auto: Boolean(input.auto),
     enabled: input.enabled !== false,
@@ -228,7 +230,8 @@ function normalizeDue(input: any): RecurringDue | null {
   }
 }
 
-function normalizeTemplate(input: any): QuickTemplate | null {  if (!input || typeof input !== 'object') return null
+function normalizeTemplate(input: any): QuickTemplate | null {
+  if (!input || typeof input !== 'object') return null
   const amount = Math.round(Number(input.amount))
   if (!Number.isFinite(amount) || amount <= 0) return null
   if (typeof input.categoryId !== 'string' || typeof input.accountId !== 'string') return null
@@ -326,12 +329,30 @@ export function normalizeData(input: any): AppData {
 }
 
 export function loadData(): AppData {
+  const raw = localStorage.getItem(STORAGE_KEY)
+  if (!raw) return seedData()
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return seedData()
     return normalizeData(JSON.parse(raw))
-  } catch {
-    return seedData()
+  } catch (error) {
+    console.error('本地数据读取失败，已保留原始内容', error)
+    // 关键：不要把损坏的数据当成“全新安装”。
+    // 先备份原文，避免随后的自动保存把用户唯一的数据覆盖掉。
+    try {
+      localStorage.setItem(`${STORAGE_KEY}.corrupt`, raw)
+    } catch {
+      /* 备份失败也不能影响启动 */
+    }
+    throw new DataCorruptedError(raw)
+  }
+}
+
+/** 本地数据无法解析时抛出，交由界面提示用户恢复备份 */
+export class DataCorruptedError extends Error {
+  readonly raw: string
+  constructor(raw: string) {
+    super('本地数据已损坏')
+    this.name = 'DataCorruptedError'
+    this.raw = raw
   }
 }
 

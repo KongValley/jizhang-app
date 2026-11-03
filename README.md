@@ -50,10 +50,27 @@
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
+npm run dev        # http://localhost:5173
+npm test           # 运行单元测试（vitest）
+npm run typecheck  # 类型检查
+npm run lint       # 代码检查
 ```
 
 手机调试：同一 Wi-Fi 下访问终端里显示的 Network 地址（`http://192.168.x.x:5173`）。
+
+## 测试
+
+金额计算、日期推算、数据校验这些容易出错又不容易靠肉眼发现的地方都有单元测试覆盖：
+
+```bash
+npm test           # 单次运行
+npm run test:watch # 监听模式
+```
+
+- `src/stats.test.ts` —— 汇总、预算、资产负债、负债还款预测、周期账单日期（含 2 月 / 闰年边界）、热力图、快捷解析
+- `src/storage.test.ts` —— 数据校验与迁移、CSV 导出、损坏数据的保护行为
+- `src/persistence.test.ts` —— 防抖写入、退出前落盘、多标签同步
+- `src/ui.dom.test.tsx` / `src/quickadd.dom.test.tsx` —— 弹层焦点陷阱与无障碍名称、编辑历史账单不丢失归档分类/账户
 
 ## 构建与部署
 
@@ -91,6 +108,7 @@ npm run preview  # 本地预览生产版本
 - React 19 + TypeScript + Vite
 - 自绘 SVG 线性图标与图表（无图标库、无图表库）
 - `vite-plugin-pwa` 生成 Service Worker 与安装清单
+- Vitest 单元测试（含 jsdom 环境下的组件行为测试）
 - 原生 CSS 设计系统，适配安全区、深色模式、小屏
 - 原生 App 壳：Expo + WebView（`mobile-shell/`，独立仓库，EAS 云端构建 APK）
 
@@ -101,6 +119,7 @@ src/
 ├── App.tsx              页面切换、记账弹层状态、快捷记账
 ├── store.tsx            全局数据与增删改操作（localStorage 持久化、周期账单到期处理）
 ├── storage.ts           种子数据、校验、CSV / JSON 导出、账户图标映射
+├── persistence.ts       localStorage 写入节流（防抖 + 退出前强制落盘）
 ├── stats.ts             汇总、趋势、资产负债、预算、热力图、固定支出、周期日期、快捷解析
 ├── utils.ts             金额 / 日期格式化
 ├── ui.tsx               底部弹层、对话框、Toast、月份切换、开关等基础组件
