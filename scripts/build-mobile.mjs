@@ -40,12 +40,23 @@ html = html
 
 fs.writeFileSync(path.join(distDir, 'index.single.html'), html)
 
-console.log('3/4 生成 mobile-shell/webHtml.ts ...')
+console.log('3/4 生成 mobile-shell/webHtml.ts 并同步版本号 ...')
 fs.mkdirSync(shellDir, { recursive: true })
 fs.writeFileSync(
   path.join(shellDir, 'webHtml.ts'),
   `// 由 scripts/build-mobile.mjs 自动生成，请勿手改\n// eslint-disable-next-line\nexport const WEB_HTML = ${JSON.stringify(html)}\n`,
 )
+
+// 版本号只有一个来源：主仓库 package.json。壳的 app.json 跟着改，
+// 否则又会出现「界面显示 1.3.0、APK 实际 1.3.1」那种对不上。
+const appJsonPath = path.join(shellDir, 'app.json')
+const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'))
+const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+if (appJson.expo.version !== version) {
+  appJson.expo.version = version
+  fs.writeFileSync(appJsonPath, `${JSON.stringify(appJson, null, 2)}\n`)
+  console.log(`   app.json 版本号 → ${version}`)
+}
 
 console.log('4/4 清理中间产物 ...')
 for (const entry of fs.readdirSync(distDir)) {

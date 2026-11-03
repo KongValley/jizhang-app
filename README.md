@@ -110,7 +110,7 @@ npm run preview  # 本地预览生产版本
 - `vite-plugin-pwa` 生成 Service Worker 与安装清单
 - Vitest 单元测试（含 jsdom 环境下的组件行为测试）
 - 原生 CSS 设计系统，适配安全区、深色模式、小屏
-- 原生 App 壳：Expo + WebView（`mobile-shell/`，独立仓库，EAS 云端构建 APK）
+- 原生 App 壳：Expo + WebView（`mobile-shell/`，独立仓库，EAS 云端构建 APK，网页改动走 OTA 更新）
 
 ## 目录结构
 

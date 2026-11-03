@@ -17,7 +17,7 @@ npm run lint       # oxlint
 npm test           # vitest run
 npm run test:watch # 监听模式
 npm run build      # 类型检查 + 产出 dist/（PWA）
-npm run build:mobile  # 产出单文件 HTML，供 Expo WebView 壳使用
+npm run build:mobile  # 产出单文件 HTML + 同步壳版本号，之后走 eas update 发 OTA
 ```
 
 **提交前四项必须全过：`typecheck` / `lint` / `test` / `build`。** 不要只看 `build` 通过就宣布完成——`build` 不跑测试。
@@ -121,6 +121,6 @@ Vitest。默认 `environment: 'node'`（纯函数测试很快），**需要 DOM 
 
 - 金额边界、日期边界（月末、闰年 2/29、跨年）是历史 bug 高发区，改这块务必补测试。
 - 中文文案是产品的一部分（月度小结、成就描述都是刻意的情绪化表达），不要"顺手"改成中性措辞。
-- `mobile-shell/` 是独立的 Expo 仓库，已被 `.gitignore` 排除，主仓库只保留构建脚本。
+- `mobile-shell/` 是独立的 Expo 仓库，已被 `.gitignore` 排除，主仓库只负责 `build:mobile`。网页改动走 `eas update`（OTA，不重装），只有原生依赖/图标/权限变更才 `eas build`。版本号由 `package.json` 单向同步到壳的 `app.json`。
 - 部署：推到 `main` 后 GitHub Actions 用 `BASE_PATH=/jizhang-app/` 构建并发布到 GitHub Pages。
 - 界面里没有 toast 之外的通知渠道，不要引入新的全局提示体系。

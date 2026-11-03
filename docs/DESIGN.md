@@ -67,11 +67,27 @@ App 里有多处横向滚动条（账户筛选、快捷模板、记一笔模板�
 | `dist/` | `npm run build` | PWA：Service Worker + manifest，浏览器安装 |
 | `dist-mobile/index.single.html` | `npm run build:mobile` | 单文件（JS/CSS 全内联），供 Expo WebView 壳使用 |
 
-WebView 壳在 `mobile-shell/`，是独立的 Expo 项目（已链接 EAS 项目 `@chara1999/jizhang-app`），通过 EAS 云端构建 APK：
+WebView 壳在 `mobile-shell/`，是独立的 Expo 项目（EAS 项目 `@chara1999/jizhang-app`）。
+
+### 三条发布通道
+
+| 改了什么 | 命令 | 用户端 |
+| --- | --- | --- |
+| 网页 UI / 逻辑 | `npm run build:mobile` 后 `eas update --branch preview`（正式用 `production`） | 下次冷启动生效，**不用重装** |
+| 原生依赖 / 图标 / 权限 | `eas build --profile preview`（APK）或 `production`（AAB） | 覆盖安装 |
+| PWA | push 到 `main` | GitHub Actions 发布 Pages |
+
+`build:mobile` 会把主仓库 `package.json` 的版本号写进 `mobile-shell/app.json`，版本号只有一个来源；`versionCode` 交给 EAS 远程管理（`appVersionSource: "remote"`）。
+
+OTA 按 `runtimeVersion` 匹配，策略是 `fingerprint`：由原生依赖、权限、config plugin 等算出的哈希。**网页改动和版本号变化都不会改这个哈希**，所以 `build:mobile` 同步版本号是安全的；只有动了原生依赖 / 权限 / 插件才会变，此时旧包收不到新更新，必须重新 `eas build`。
+
+### 本地联调
 
 ```bash
-npm run build:mobile
-cd mobile-shell && npx eas-cli build --platform android --profile preview --non-interactive
+npm run dev                       # 终端 1：主仓库 http://localhost:5173
+cd mobile-shell && npx expo start  # 终端 2：壳
 ```
+
+`App.tsx` 在 `__DEV__` 下不加载内联 HTML，而是用 Metro 的 `hostUri` 拼出 `http://<局域网 IP>:5173` 直接连开发服务器，改网页走 HMR。正式包 `__DEV__` 为 false，永远用内联的 `WEB_HTML`。
 
 因为壳里没有服务器，`index.html` 里的 manifest / favicon 引用会被移除，Logo 也改成了内联 SVG 组件（`BrandMark.tsx`）。
