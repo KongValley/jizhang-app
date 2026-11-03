@@ -79,7 +79,7 @@ WebView 壳在 `mobile-shell/`，是独立的 Expo 项目（EAS 项目 `@chara19
 
 `build:mobile` 会把主仓库 `package.json` 的版本号写进 `mobile-shell/app.json`，版本号只有一个来源；`versionCode` 交给 EAS 远程管理（`appVersionSource: "remote"`）。
 
-OTA 按 `runtimeVersion` 匹配，策略是 `fingerprint`：由原生依赖、权限、config plugin 等算出的哈希。**网页改动和版本号变化都不会改这个哈希**，所以 `build:mobile` 同步版本号是安全的；只有动了原生依赖 / 权限 / 插件才会变，此时旧包收不到新更新，必须重新 `eas build`。
+OTA 按 `runtimeVersion` 匹配，策略是 `appVersion`：runtime 就等于 `app.json` 的 `version`。因此 **`version` 只在原生构建时递增，网页改动不 bump**——否则已装用户会收不到更新（新 runtime 没有对应的包）。`fingerprint` 策略在这里走不通：EAS 先 prebuild 再算指纹，本地没有 `android/`，两边必然不一致（实测构建失败）。
 
 ### 本地联调
 
